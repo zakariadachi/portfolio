@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import './App.css'
+import { askGemini, getOfflineResponse } from './ai'
 
 /* ─── ASCII banner ─────────────────────────────────────────── */
 const BANNER = `
@@ -216,17 +217,132 @@ const QUIZ_QUESTIONS = [
   {
     q: 'In Tailwind CSS v4, which directive is used to import framework styles inside index.css?',
     a: ['@import "tailwindcss"', 'import tailwindcss', '@import tailwindcss'],
-    hint: '@import "tailwindcss"'
+    hint: 'starts with @import'
   },
   {
     q: 'What is the default port number used by Vite development server?',
     a: ['5173'],
     hint: 'starts with 5, ends with 73'
+  },
+  {
+    q: 'What React hook is used to persist values across renders without causing a re-render?',
+    a: ['useref', 'ref'],
+    hint: 'starts with "use" and ends with "ref"'
+  },
+  {
+    q: 'What React hook is used to memoize the definition of a callback function?',
+    a: ['usecallback', 'callback'],
+    hint: 'starts with "use" and ends with "callback"'
+  },
+  {
+    q: 'Which PHP framework is named after an elegant city-state and focuses on developer happiness?',
+    a: ['laravel'],
+    hint: 'starts with "lara" and ends with "vel"'
+  },
+  {
+    q: 'Who is the original creator of the PHP language?',
+    a: ['rasmus lerdorf', 'rasmus'],
+    hint: 'First name is Rasmus'
+  },
+  {
+    q: 'What programming language was created by Dennis Ritchie at Bell Labs in 1972?',
+    a: ['c'],
+    hint: 'A single letter of the alphabet'
+  },
+  {
+    q: 'In industrial automation, what does the acronym "PLC" stand for?',
+    a: ['programmable logic controller', 'programmable logic controllers'],
+    hint: 'P... L... C...'
+  },
+  {
+    q: 'What popular single-board computer is widely used for IoT projects, robotics, and learning?',
+    a: ['raspberry pi', 'raspberry', 'raspi'],
+    hint: 'A sweet red fruit pie 🍓'
+  },
+  {
+    q: 'What open-source electronics platform is based on easy-to-use hardware, featuring microcontrollers like ATmega328?',
+    a: ['arduino'],
+    hint: 'starts with "ard" and ends with "uino"'
+  },
+  {
+    q: 'In digital electronics, how many bits make up one byte?',
+    a: ['8', 'eight'],
+    hint: '2 raised to the power of 3'
+  },
+  {
+    q: 'Which Git command is used to download the history and file contents of a remote repository?',
+    a: ['git clone', 'clone'],
+    hint: 'starts with "c" and ends with "lone"'
+  },
+  {
+    q: 'What Git command is used to stage changes for the next commit?',
+    a: ['git add', 'add'],
+    hint: 'A three-letter word starting with "a"'
+  },
+  {
+    q: 'What is the default branch name in modern Git repositories?',
+    a: ['main'],
+    hint: 'starts with "m" and ends with "n"'
+  },
+  {
+    q: 'In Unix/Linux, which command is used to print the current working directory?',
+    a: ['pwd'],
+    hint: 'p... w... d...'
+  },
+  {
+    q: 'In the terminal, which command displays the manual page or documentation of another command?',
+    a: ['man'],
+    hint: 'A three-letter word, also refers to a human male'
+  },
+  {
+    q: 'What protocol is used to securely connect to a remote terminal/server over an encrypted channel?',
+    a: ['ssh', 'secure shell'],
+    hint: 'starts with "s", ends with "h"'
+  },
+  {
+    q: 'In Bash, what symbol is used to pipe the output of one command as input to another command?',
+    a: ['|', 'pipe', 'vertical bar'],
+    hint: 'A vertical bar character `|`'
+  },
+  {
+    q: 'What standard query language is used to manage and manipulate relational databases?',
+    a: ['sql', 'structured query language'],
+    hint: 'S... Q... L...'
+  },
+  {
+    q: 'In SQL, which keyword is used to retrieve data from a database?',
+    a: ['select'],
+    hint: 'starts with "s" and ends with "ct"'
+  },
+  {
+    q: 'In SQL, which clause is used to filter records based on a specified condition?',
+    a: ['where'],
+    hint: 'A five-letter question word about location'
+  },
+  {
+    q: "Who is widely recognized as the world's first computer programmer for her work on Babbage's Analytical Engine?",
+    a: ['ada lovelace', 'ada'],
+    hint: 'Her first name is Ada'
+  },
+  {
+    q: 'What animal is the official mascot of the Linux operating system?',
+    a: ['penguin', 'tux'],
+    hint: 'A flightless bird that lives in cold regions 🐧'
+  },
+  {
+    q: 'What does HTML stand for?',
+    a: ['hypertext markup language', 'hyper text markup language'],
+    hint: 'H... T... M... L...'
+  },
+  {
+    q: 'In JavaScript, what keyword is used to declare a block-scoped variable that can be reassigned?',
+    a: ['let'],
+    hint: 'A three-letter word, also means to allow'
   }
 ]
 
 /* ─── All Autocomplete Commands ──────────────────────────────── */
-const ALL_COMMANDS = ['help', 'about', 'skills', 'projects', 'contact', 'clear', 'exit', 'theme', 'crt', 'matrix', 'game', 'sound', 'neofetch', 'cowsay', 'resume', 'ls', 'cd', 'cat', 'quote']
+const ALL_COMMANDS = ['help', 'about', 'skills', 'projects', 'contact', 'clear', 'exit', 'theme', 'crt', 'matrix', 'game', 'sound', 'neofetch', 'cowsay', 'resume', 'ls', 'cd', 'cat', 'quote', 'ai', 'ai-key']
 
 /* ─── Single output line ────────────────────────────────────── */
 function OutputLine({ line }) {
@@ -488,6 +604,205 @@ export default function App() {
 
   /* Focus input on click anywhere */
   const focusInput = useCallback(() => inputRef.current?.focus(), [])
+
+  const handleAIQuery = useCallback((question, prompt, interceptedCommand = null) => {
+    const queryText = interceptedCommand ? interceptedCommand : question;
+    if (!queryText.trim()) {
+      setHistory(prev => [
+        ...prev,
+        prompt,
+        {
+          type: 'output',
+          lines: [
+            { text: '  Usage: ai <your question/prompt>', color: 'text-amber-400' },
+            { text: '  Example: ai what are Zakaria\'s skills?', color: 'text-slate-300' },
+            { text: '', color: '' }
+          ]
+        }
+      ]);
+      return;
+    }
+
+    // Determine if it's a conversational sentence or standard question
+    const queryLower = queryText.toLowerCase().trim();
+    const conversationalKeywords = [
+      'who', 'what', 'why', 'how', 'where', 'when', 'tell', 'show', 'explain', 'describe', 'can you', 'do you',
+      'qui', 'que', 'quoi', 'pourquoi', 'comment', 'ou', 'quand', 'parle', 'explique', 'decrir', 'peux-tu', 'est-ce',
+      'hello', 'hi', 'hey', 'salut', 'bonjour', 'yo', 'bonsoir', 'cv', 'ca va', 'comment', 'aide'
+    ];
+    const isQuestion = queryLower.endsWith('?') || 
+                       conversationalKeywords.some(k => queryLower.startsWith(k) || queryLower.includes(' ' + k) || queryLower.startsWith(k + ' '));
+
+    const isIntercepted = !!interceptedCommand;
+    let diagnosticLines = [];
+
+    if (isIntercepted) {
+      if (isQuestion) {
+        // Unrecognized command but looks like a direct question!
+        diagnosticLines = [
+          { text: `  [SYS] Direct AI Query detected: "${queryText.slice(0, 45)}${queryText.length > 45 ? '...' : ''}"`, color: 'text-cyan-400 animate-pulse' },
+          { text: '  [SYS] Routing to natural language parsing core... [OK]', color: 'text-slate-500' }
+        ];
+      } else {
+        // Typical false command (gibberish or typo)
+        diagnosticLines = [
+          { text: `  bash: ${interceptedCommand}: command not found.`, color: 'text-red-400' },
+          { text: `  [SYS] Intercepting false command. Asking ZakOS AI...`, color: 'text-cyan-400 animate-pulse' },
+          { text: '  [SYS] Routing to diagnostic parsing core... [OK]', color: 'text-slate-500' }
+        ];
+      }
+    } else {
+      // Normal 'ai' prefixed command
+      diagnosticLines = [
+        { text: `  [SYS] Uplink request received: "${queryText.slice(0, 45)}${queryText.length > 45 ? '...' : ''}"`, color: 'text-slate-400' },
+        { text: '  [SYS] Booting natural language parsing core... [OK]', color: 'text-slate-500' }
+      ];
+    }
+
+    setHistory(prev => [
+      ...prev,
+      prompt,
+      { type: 'output', lines: diagnosticLines }
+    ]);
+
+    const activeKey = localStorage.getItem('term-ai-key') || import.meta.env.VITE_GEMINI_API_KEY;
+
+    const startStreaming = (linesArray) => {
+      setHistory(prev => [...prev, { type: 'output', lines: [] }]);
+      
+      let accumulated = [];
+      let index = 0;
+      const interval = setInterval(() => {
+        if (index >= linesArray.length) {
+          clearInterval(interval);
+          return;
+        }
+        accumulated.push(linesArray[index]);
+        setHistory(prev => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last && last.type === 'output') {
+            const updatedLast = {
+              ...last,
+              lines: [...accumulated]
+            };
+            return [...prev.slice(0, -1), updatedLast];
+          }
+          return prev;
+        });
+        playSound('click', soundEnabled);
+        index++;
+      }, 70);
+    };
+
+    if (activeKey) {
+      setHistory(prev => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        if (last && last.type === 'output') {
+          // Prevent duplicates under double-triggered renders/updaters
+          if (last.lines.some(l => l && l.text && l.text.includes('Routing encrypted query'))) {
+            return prev;
+          }
+          const updatedLast = {
+            ...last,
+            lines: [
+              ...last.lines,
+              { text: '  [SYS] Routing encrypted query to Gemini-2.5-Flash... [WAIT]', color: 'text-amber-400 animate-pulse' }
+            ]
+          };
+          return [...prev.slice(0, -1), updatedLast];
+        }
+        return prev;
+      });
+
+      askGemini(queryText, activeKey)
+        .then(responseText => {
+          setHistory(prev => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            if (last && last.type === 'output') {
+              if (last.lines.some(l => l && l.text && l.text.includes('Uplink established'))) {
+                return prev;
+              }
+              const filteredLines = last.lines.filter(l => l && typeof l.text === 'string' && !l.text.includes('[WAIT]'));
+              const updatedLast = {
+                ...last,
+                lines: [
+                  ...filteredLines,
+                  { text: '  [SYS] Uplink established. Decompressing response stream... [OK]', color: 'text-green-400' },
+                  { text: '', color: '' }
+                ]
+              };
+              return [...prev.slice(0, -1), updatedLast];
+            }
+            return prev;
+          });
+
+          const rawLines = responseText.split('\n');
+          const formattedLines = rawLines.map(lineText => {
+            let color = 'text-green-400';
+            if (lineText.startsWith('---') || lineText.startsWith('===')) color = 'text-slate-500';
+            else if (lineText.startsWith('*') || lineText.startsWith('-')) color = 'text-cyan-400';
+            else if (lineText.toUpperCase() === lineText && lineText.length > 3) color = 'text-amber-400';
+            return { text: `  ${lineText}`, color };
+          });
+
+          startStreaming(formattedLines);
+        })
+        .catch(err => {
+          console.error("Gemini failed:", err);
+          playSound('error', soundEnabled);
+          setHistory(prev => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            if (last && last.type === 'output') {
+              if (last.lines.some(l => l && l.text && l.text.includes('Link error'))) {
+                return prev;
+              }
+              const filteredLines = last.lines.filter(l => l && typeof l.text === 'string' && !l.text.includes('[WAIT]'));
+              const updatedLast = {
+                ...last,
+                lines: [
+                  ...filteredLines,
+                  { text: `  [SYS] Link error: ${err.message}`, color: 'text-red-400' },
+                  { text: '  [SYS] Falling back to offline retro expert core... [OK]', color: 'text-amber-400' },
+                  { text: '', color: '' }
+                ]
+              };
+              return [...prev.slice(0, -1), updatedLast];
+            }
+            return prev;
+          });
+          const offlineLines = getOfflineResponse(queryText);
+          startStreaming(offlineLines);
+        });
+    } else {
+      setHistory(prev => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        if (last && last.type === 'output') {
+          if (last.lines.some(l => l && l.text && l.text.includes('No Gemini API key detected'))) {
+            return prev;
+          }
+          const updatedLast = {
+            ...last,
+            lines: [
+              ...last.lines,
+              { text: '  [SYS] No Gemini API key detected. Querying offline database... [OK]', color: 'text-cyan-400' },
+              { text: '', color: '' }
+            ]
+          };
+          return [...prev.slice(0, -1), updatedLast];
+        }
+        return prev;
+      });
+      const offlineLines = getOfflineResponse(queryText);
+      setTimeout(() => {
+        startStreaming(offlineLines);
+      }, 500);
+    }
+  }, [soundEnabled]);
 
   const runCommand = useCallback((raw) => {
     const cmd = raw.trim().toLowerCase()
@@ -778,7 +1093,7 @@ export default function App() {
         return
       }
 
-      const currentQ = QUIZ_QUESTIONS[gameState.questionIdx]
+      const currentQ = gameState.questions[gameState.questionIdx]
       const isCorrect = currentQ.a.includes(cmd)
       const nextIdx = gameState.questionIdx + 1
       const newScore = isCorrect ? gameState.score + 1 : gameState.score
@@ -789,12 +1104,14 @@ export default function App() {
         playSound('error', soundEnabled)
       }
 
-      const answerLine = isCorrect
-        ? { text: `  ✔ Correct! +1 Point. Score: ${newScore}/${QUIZ_QUESTIONS.length}`, color: 'text-green-400' }
-        : { text: `  ✘ Incorrect! The answer was: "${currentQ.a[0]}". Score: ${newScore}/${QUIZ_QUESTIONS.length}`, color: 'text-red-400' }
+      const totalQ = gameState.questions.length
 
-      if (nextIdx < QUIZ_QUESTIONS.length) {
-        setGameState({ questionIdx: nextIdx, score: newScore })
+      const answerLine = isCorrect
+        ? { text: `  ✔ Correct! +1 Point. Score: ${newScore}/${totalQ}`, color: 'text-green-400' }
+        : { text: `  ✘ Incorrect! The answer was: "${currentQ.a[0]}". Score: ${newScore}/${totalQ}`, color: 'text-red-400' }
+
+      if (nextIdx < totalQ) {
+        setGameState({ ...gameState, questionIdx: nextIdx, score: newScore })
         setHistory(prev => [
           ...prev,
           prompt,
@@ -803,8 +1120,9 @@ export default function App() {
             lines: [
               answerLine,
               { text: '', color: '' },
-              { text: `  Question ${nextIdx + 1}: ${QUIZ_QUESTIONS[nextIdx].q}`, color: 'text-white' },
-              { text: `  (Hint: ${QUIZ_QUESTIONS[nextIdx].hint})`, color: 'text-slate-400' },
+              { text: `  Question ${nextIdx + 1}: ${gameState.questions[nextIdx].q}`, color: 'text-white' },
+              { text: `  (Hint: ${gameState.questions[nextIdx].hint})`, color: 'text-slate-400' },
+              { text: '  (type exit pour quitter)', color: 'text-slate-500' },
               { text: '', color: '' }
             ]
           }
@@ -820,8 +1138,8 @@ export default function App() {
               answerLine,
               { text: '', color: '' },
               { text: '┌── 🎉 QUIZ COMPLETED! ─────────────────────────────────┐', color: 'text-green-400' },
-              { text: `│  Final Score: ${newScore}/${QUIZ_QUESTIONS.length}                                  │`, color: 'text-white' },
-              { text: `│  Rank       : ${newScore === QUIZ_QUESTIONS.length ? 'TERMINAL MASTER 🏆' : newScore > 0 ? 'GEEK APPRENTICE' : 'NOOB 👾'}                      │`, color: 'text-cyan-400' },
+              { text: `│  Final Score: ${newScore}/${totalQ}                                  │`, color: 'text-white' },
+              { text: `│  Rank       : ${newScore === totalQ ? 'TERMINAL MASTER 🏆' : newScore > 0 ? 'GEEK APPRENTICE' : 'NOOB 👾'}                      │`, color: 'text-cyan-400' },
               { text: '└──────────────────────────────────────────────────────┘', color: 'text-green-400' },
               { text: '', color: '' }
             ]
@@ -1113,7 +1431,8 @@ export default function App() {
     }
 
     if (cmd === 'game') {
-      setGameState({ questionIdx: 0, score: 0 })
+      const shuffled = [...QUIZ_QUESTIONS].sort(() => 0.5 - Math.random()).slice(0, 5)
+      setGameState({ questions: shuffled, questionIdx: 0, score: 0 })
       setHistory(prev => [
         ...prev,
         prompt,
@@ -1121,12 +1440,13 @@ export default function App() {
           type: 'output',
           lines: [
             { text: '┌── 🎮 Retro Terminal Quiz v1.0 ────────────────────────┐', color: 'text-amber-400' },
-            { text: '│  Answer the questions to prove your geekness!         │', color: 'text-slate-300' },
-            { text: '│  Type "exit" at any time to quit the game.           │', color: 'text-slate-300' },
+            { text: '│  Answer these 5 random questions to prove your       │', color: 'text-slate-300' },
+            { text: '│  geekness! Type "exit" at any time to quit the game. │', color: 'text-slate-300' },
             { text: '└──────────────────────────────────────────────────────┘', color: 'text-amber-400' },
             { text: '', color: '' },
-            { text: `  Question 1: ${QUIZ_QUESTIONS[0].q}`, color: 'text-white' },
-            { text: `  (Hint: ${QUIZ_QUESTIONS[0].hint})`, color: 'text-slate-400' },
+            { text: `  Question 1: ${shuffled[0].q}`, color: 'text-white' },
+            { text: `  (Hint: ${shuffled[0].hint})`, color: 'text-slate-400' },
+            { text: '  (type exit pour quitter)', color: 'text-slate-500' },
             { text: '', color: '' }
           ]
         }
@@ -1241,22 +1561,86 @@ export default function App() {
       return
     }
 
-    const response = COMMANDS[cmd]
-      ? { type: 'output', lines: COMMANDS[cmd] }
-      : {
-          type: 'output',
-          lines: [
-            { text: `  bash: ${cmd}: command not found. Type 'help' for options.`, color: 'text-red-400' },
-            { text: '', color: '' },
-          ],
-        }
-
-    if (!COMMANDS[cmd]) {
-      playSound('error', soundEnabled)
+    // 1. ai-key command
+    if (cmd.startsWith('ai-key')) {
+      const parts = raw.trim().split(' ')
+      const arg = parts[1]
+      
+      if (!arg) {
+        const storedKey = localStorage.getItem('term-ai-key') || import.meta.env.VITE_GEMINI_API_KEY
+        const keyStatus = storedKey 
+          ? `ACTIVE (ends in ...${storedKey.slice(-6)})` 
+          : 'NOT CONFIGURED (offline mode active)'
+        
+        setHistory(prev => [
+          ...prev,
+          prompt,
+          {
+            type: 'output',
+            lines: [
+              { text: '┌── 🔑 ZAKOS AI KEY MANAGER ─────────────────────────────┐', color: 'text-amber-400' },
+              { text: `│  Current Key Status: ${keyStatus.padEnd(34)} │`, color: 'text-slate-300' },
+              { text: '│                                                         │', color: 'text-slate-500' },
+              { text: '│  Usage:                                                 │', color: 'text-slate-400' },
+              { text: '│    ai-key <your_gemini_key>  → Save key locally         │', color: 'text-slate-300' },
+              { text: '│    ai-key remove            → Delete stored key         │', color: 'text-slate-300' },
+              { text: '└─────────────────────────────────────────────────────────┘', color: 'text-amber-400' },
+              { text: '', color: '' }
+            ]
+          }
+        ])
+      } else if (arg.toLowerCase() === 'remove') {
+        localStorage.removeItem('term-ai-key')
+        playSound('success', soundEnabled)
+        setHistory(prev => [
+          ...prev,
+          prompt,
+          {
+            type: 'output',
+            lines: [
+              { text: '  [SUCCESS] Stored Gemini API key has been removed from local storage.', color: 'text-green-400' },
+              { text: '  System will fall back to .env key or local mock database.', color: 'text-slate-400' },
+              { text: '', color: '' }
+            ]
+          }
+        ])
+      } else {
+        localStorage.setItem('term-ai-key', arg)
+        playSound('success', soundEnabled)
+        setHistory(prev => [
+          ...prev,
+          prompt,
+          {
+            type: 'output',
+            lines: [
+              { text: '  [SUCCESS] Gemini API key configured successfully!', color: 'text-green-400' },
+              { text: '  It has been stored securely in your browser\'s localStorage.', color: 'text-slate-400' },
+              { text: '  Try typing: ai hello', color: 'text-cyan-400' },
+              { text: '', color: '' }
+            ]
+          }
+        ])
+      }
+      return
     }
 
+    // 2. ai command
+    if (cmd.startsWith('ai')) {
+      const parts = raw.trim().split(' ')
+      const question = parts.slice(1).join(' ')
+      handleAIQuery(question, prompt)
+      return
+    }
+
+    if (!COMMANDS[cmd]) {
+      // Unrecognized command: intercept with AI!
+      handleAIQuery('', prompt, raw.trim())
+      return
+    }
+
+    const response = { type: 'output', lines: COMMANDS[cmd] }
     setHistory(prev => [...prev, prompt, response])
-  }, [gameState, crtEnabled, soundEnabled, currentPath, theme, contactState, quoteState])
+  }, [gameState, crtEnabled, soundEnabled, currentPath, theme, contactState, quoteState, handleAIQuery])
 
   const handleKeyDown = useCallback((e) => {
     playSound('click', soundEnabled)
@@ -1393,7 +1777,7 @@ export default function App() {
             {/* Quick Actions badges */}
             <div className="flex flex-wrap gap-2 mb-3 mt-1 items-center select-none">
               <span className="text-xs text-slate-400 font-bold shrink-0">Suggestions :</span>
-              {['help', 'about', 'skills', 'projects', 'contact', 'crt', 'matrix', 'game', 'neofetch', 'resume', 'quote'].map(cmd => (
+              {['help', 'about', 'skills', 'projects', 'contact', 'ai', 'ai-key', 'crt', 'matrix', 'game', 'neofetch', 'resume', 'quote'].map(cmd => (
                 <button
                   key={cmd}
                   onClick={(e) => {

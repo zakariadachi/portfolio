@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://zakariadachi.vercel.app/sitemap.xml
